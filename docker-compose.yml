@@ -1,0 +1,169 @@
+version: '3.9'
+
+services:
+  registry:
+    build:
+      context: eureka-server/
+      args:
+        EUREKA_VERSION: $EUREKA_VERSION
+    deploy:
+      replicas: 1
+      placement:
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    ports:
+      - target: 8761
+        published: 8761
+        protocol: tcp
+        mode: host
+    networks:
+      dev-nw:
+        aliases:
+          - registry
+
+  db:
+    build:
+      context: postgres/
+      shm_size: '512m'
+      args:
+        POSTGRES_VERSION: $POSTGRES_VERSION
+    environment:
+      POSTGRES_PASSWORD: qwerty
+    volumes:
+      - type: volume
+        source: pgdata
+        target: /var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    ports:
+      - target: 5432
+        published: 5432
+        protocol: tcp
+        mode: host
+    networks:
+      dev-nw:
+        aliases: 
+          - db
+
+  elasticsearch:
+    build:
+      context: elasticsearch/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    environment:
+      ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+      ELASTIC_PASSWORD: qwerty
+      # Use single node discovery in order to disable production mode and avoid bootstrap checks.
+      # see: https://www.elastic.co/guide/en/elasticsearch/reference/current/bootstrap-checks.html
+      discovery.type: single-node
+    volumes:
+      - type: bind
+        source: ./elasticsearch/config/elasticsearch.yml
+        target: /usr/share/elasticsearch/config/elasticsearch.yml
+        read_only: true
+      - type: volume
+        source: elasticsearch
+        target: /usr/share/elasticsearch/data
+    deploy:
+      replicas: 1
+      placement:
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    ports:
+      - target: 9200
+        published: 9200
+        protocol: tcp
+        mode: host
+      - target: 9300
+        published: 9300
+        protocol: tcp
+        mode: host
+    networks:
+      dev-nw:
+        aliases: 
+          - elasticsearch
+
+  logstash:
+    build:
+      context: logstash/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    volumes:
+      - type: bind
+        source: ./logstash/config/logstash.yml
+        target: /usr/share/logstash/config/logstash.yml
+        read_only: true
+      - type: bind
+        source: ./logstash/pipeline
+        target: /usr/share/logstash/pipeline
+        read_only: true
+    deploy:
+      replicas: 1
+      placement:
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    ports:
+      - target: 5000
+        published: 5000
+        protocol: tcp
+        mode: host
+      - target: 9600
+        published: 9600
+        protocol: tcp
+        mode: host
+    networks:
+      dev-nw:
+        aliases: 
+          - logstash
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    build:
+      context: kibana/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - type: bind
+        source: ./kibana/config/kibana.yml
+        target: /usr/share/kibana/config/kibana.yml
+        read_only: true
+    deploy:
+      replicas: 1
+      placement:
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    ports:
+      - target: 5601
+        published: 5601
+        protocol: tcp
+        mode: host
+    networks:
+      dev-nw:
+        aliases: 
+          - kibana
+    depends_on:
+      - elasticsearch
+
+networks:
+  dev-nw:
+    driver: bridge
+
+volumes:
+  pgdata:
+  elasticsearch:
